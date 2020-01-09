@@ -1,0 +1,15 @@
+# Config file for the Live666 library
+# Usage from an external project:
+#    In your CMakeLists.txt, add these lines:
+#
+#    find_package(live666 REQUIRED)
+#    target_link_libraries(MY_TARGET_NAME PUBLIC live666)
+
+include(CMakeFindDependencyMacro)
+
+set(WITH_SSL @WITH_SSL@)
+if(WITH_SSL)
+    find_dependency(OpenSSL REQUIRED)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
