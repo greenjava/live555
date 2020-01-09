@@ -1939,7 +1939,7 @@ int RTSPClient::write(const char* data, unsigned count) {
       if (fTLS.isNeeded) {
 	return fTLS.write(data, count);
       } else {
-	return send(fOutputSocketNum, (const u_int8_t*)data, count, 0);
+	return send(fOutputSocketNum, (char const*)data, count, 0);
       }
 }
 
