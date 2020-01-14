@@ -77,6 +77,9 @@ public:
   char* sessionDescription() const { return fSessionDescription; }
   char const* controlPath() const { return fControlPath; }
 
+  char const* keyMgmtPrtclId() const { return fKeyMgmtPrtclId; }
+  char const* keyMgmtData() const { return fKeyMgmtData; }
+  
   double& playStartTime() { return fMaxPlayStartTime; }
   double& playEndTime() { return fMaxPlayEndTime; }
   char* absStartTime() const;
@@ -110,6 +113,7 @@ protected:
   Boolean parseSDPAttribute_control(char const* sdpLine);
   Boolean parseSDPAttribute_range(char const* sdpLine);
   Boolean parseSDPAttribute_source_filter(char const* sdpLine);
+  Boolean parseSDPAttribute_key_mgmt(char const* sdpLine);
 
   static char* lookupPayloadFormat(unsigned char rtpPayloadType,
 				   unsigned& rtpTimestampFrequency,
@@ -138,6 +142,8 @@ protected:
   char* fSessionName; // holds s=<session name> value
   char* fSessionDescription; // holds i=<session description> value
   char* fControlPath; // holds optional a=control: string
+  char* fKeyMgmtPrtclId;
+  char* fKeyMgmtData;
 };
 
 
@@ -167,6 +173,10 @@ public:
   char const* codecName() const { return fCodecName; }
   char const* protocolName() const { return fProtocolName; }
   char const* controlPath() const { return fControlPath; }
+
+  char const* keyMgmtPrtclId() const { return fKeyMgmtPrtclId; }
+  char const* keyMgmtData() const { return fKeyMgmtData; }
+  
   Boolean isSSM() const { return fSourceFilterAddr.s_addr != 0; }
 
   unsigned short videoWidth() const { return fVideoWidth; }
@@ -289,6 +299,7 @@ protected:
   Boolean parseSDPAttribute_source_filter(char const* sdpLine);
   Boolean parseSDPAttribute_x_dimensions(char const* sdpLine);
   Boolean parseSDPAttribute_framerate(char const* sdpLine);
+  Boolean parseSDPAttribute_key_mgmt(char const* sdpLine);
 
   virtual Boolean createSourceObjects(int useSpecialRTPoffset);
     // create "fRTPSource" and "fReadSource" member objects, after we've been initialized via SDP
@@ -310,6 +321,8 @@ protected:
   unsigned fRTPTimestampFrequency;
   Boolean fMultiplexRTCPWithRTP;
   char* fControlPath; // holds optional a=control: string
+  char* fKeyMgmtPrtclId;
+  char* fKeyMgmtData;
   struct in_addr fSourceFilterAddr; // used for SSM
   unsigned fBandwidth; // in kilobits-per-second, from b= line
 

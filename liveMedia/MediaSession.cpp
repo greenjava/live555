@@ -62,7 +62,8 @@ MediaSession::MediaSession(UsageEnvironment& env)
     fConnectionEndpointName(NULL),
     fMaxPlayStartTime(0.0f), fMaxPlayEndTime(0.0f), fAbsStartTime(NULL), fAbsEndTime(NULL),
     fScale(1.0f), fSpeed(1.0f),
-    fMediaSessionType(NULL), fSessionName(NULL), fSessionDescription(NULL), fControlPath(NULL) {
+    fMediaSessionType(NULL), fSessionName(NULL), fSessionDescription(NULL), fControlPath(NULL),
+    fKeyMgmtPrtclId(NULL), fKeyMgmtData(NULL) {
   fSourceFilterAddr.s_addr = 0;
 
   // Get our host name, and use this for the RTCP CNAME:
@@ -87,6 +88,7 @@ MediaSession::~MediaSession() {
   delete[] fSessionName;
   delete[] fSessionDescription;
   delete[] fControlPath;
+  delete[] fKeyMgmtPrtclId; delete[] fKeyMgmtData;
 }
 
 Boolean MediaSession::isMediaSession() const {
@@ -119,6 +121,7 @@ Boolean MediaSession::initializeWithSDP(char const* sdpDescription) {
     if (parseSDPAttribute_range(sdpLine)) continue;
     if (parseSDPAttribute_type(sdpLine)) continue;
     if (parseSDPAttribute_source_filter(sdpLine)) continue;
+    if (parseSDPAttribute_key_mgmt(sdpLine)) continue;
   }
 
   while (sdpLine != NULL) {
@@ -213,6 +216,7 @@ Boolean MediaSession::initializeWithSDP(char const* sdpDescription) {
       if (subsession->parseSDPAttribute_source_filter(sdpLine)) continue;
       if (subsession->parseSDPAttribute_x_dimensions(sdpLine)) continue;
       if (subsession->parseSDPAttribute_framerate(sdpLine)) continue;
+      if (subsession->parseSDPAttribute_key_mgmt(sdpLine)) continue;
 
       // (Later, check for malformed lines, and other valid SDP lines#####)
     }
@@ -275,87 +279,63 @@ Boolean MediaSession::parseSDPLine(char const* inputLine,
   return True;
 }
 
-static char* parseCLine(char const* sdpLine) {
-  char* resultStr = NULL;
-  char* buffer = strDupSize(sdpLine); // ensures we have enough space
-  if (sscanf(sdpLine, "c=IN IP4 %[^/\r\n]", buffer) == 1) {
-    // Later, handle the optional /<ttl> and /<numAddresses> #####
-    resultStr = strDup(buffer);
+// Common code used to parse many string values within SDP lines:
+static Boolean parseStringValue(char const* sdpLine, char const* searchFormat, char*& result) {
+  Boolean parseSuccess = False;
+  char* buffer = strDupSize(sdpLine);
+
+  if (sscanf(sdpLine, searchFormat, buffer) == 1) {
+    delete[] result; result = strDup(buffer);
+    parseSuccess = True;
   }
   delete[] buffer;
 
-  return resultStr;
+  return parseSuccess;
+}
+
+static Boolean parseTwoStringValues(char const* sdpLine, char const* searchFormat,
+				    char*& result1, char*& result2) {
+  Boolean parseSuccess = False;
+  size_t sdpLineSize = strlen(sdpLine) + 1;
+  char* buffer1 = new char[sdpLineSize];
+  char* buffer2 = new char[sdpLineSize];
+
+  if (sscanf(sdpLine, searchFormat, buffer1, buffer2) == 2) {
+    delete[] result1; result1 = strDup(buffer1);
+    delete[] result2; result2 = strDup(buffer2);
+    parseSuccess = True;
+  }
+  delete[] buffer1;
+  delete[] buffer2;
+
+  return parseSuccess;
 }
 
 Boolean MediaSession::parseSDPLine_s(char const* sdpLine) {
   // Check for "s=<session name>" line
-  char* buffer = strDupSize(sdpLine);
-  Boolean parseSuccess = False;
-
-  if (sscanf(sdpLine, "s=%[^\r\n]", buffer) == 1) {
-    delete[] fSessionName; fSessionName = strDup(buffer);
-    parseSuccess = True;
-  }
-  delete[] buffer;
-
-  return parseSuccess;
+  return parseStringValue(sdpLine, "s=%[^\r\n]", fSessionName);
 }
 
 Boolean MediaSession::parseSDPLine_i(char const* sdpLine) {
   // Check for "i=<session description>" line
-  char* buffer = strDupSize(sdpLine);
-  Boolean parseSuccess = False;
-
-  if (sscanf(sdpLine, "i=%[^\r\n]", buffer) == 1) {
-    delete[] fSessionDescription; fSessionDescription = strDup(buffer);
-    parseSuccess = True;
-  }
-  delete[] buffer;
-
-  return parseSuccess;
+  return parseStringValue(sdpLine, "i=%[^\r\n]", fSessionDescription);
 }
 
 Boolean MediaSession::parseSDPLine_c(char const* sdpLine) {
   // Check for "c=IN IP4 <connection-endpoint>"
   // or "c=IN IP4 <connection-endpoint>/<ttl+numAddresses>"
   // (Later, do something with <ttl+numAddresses> also #####)
-  char* connectionEndpointName = parseCLine(sdpLine);
-  if (connectionEndpointName != NULL) {
-    delete[] fConnectionEndpointName;
-    fConnectionEndpointName = connectionEndpointName;
-    return True;
-  }
-
-  return False;
+  return parseStringValue(sdpLine, "c=IN IP4 %[^/\r\n]", fConnectionEndpointName);
 }
 
 Boolean MediaSession::parseSDPAttribute_type(char const* sdpLine) {
   // Check for a "a=type:broadcast|meeting|moderated|test|H.332|recvonly" line:
-  Boolean parseSuccess = False;
-
-  char* buffer = strDupSize(sdpLine);
-  if (sscanf(sdpLine, "a=type: %[^ ]", buffer) == 1) {
-    delete[] fMediaSessionType;
-    fMediaSessionType = strDup(buffer);
-    parseSuccess = True;
-  }
-  delete[] buffer;
-
-  return parseSuccess;
+  return parseStringValue(sdpLine, "a=type: %[^ ]", fMediaSessionType);
 }
 
 Boolean MediaSession::parseSDPAttribute_control(char const* sdpLine) {
   // Check for a "a=control:<control-path>" line:
-  Boolean parseSuccess = False;
-
-  char* controlPath = strDupSize(sdpLine); // ensures we have enough space
-  if (sscanf(sdpLine, "a=control: %s", controlPath) == 1) {
-    parseSuccess = True;
-    delete[] fControlPath; fControlPath = strDup(controlPath);
-  }
-  delete[] controlPath;
-
-  return parseSuccess;
+  return parseStringValue(sdpLine, "a=control: %s", fControlPath);
 }
 
 static Boolean parseRangeAttribute(char const* sdpLine, double& startTime, double& endTime) {
@@ -410,10 +390,9 @@ static Boolean parseSourceFilterAttribute(char const* sdpLine,
   // one of our multicast addresses.  We also don't support more than
   // one <source> #####
   Boolean result = False; // until we succeed
-  char* sourceName = strDupSize(sdpLine); // ensures we have enough space
+  char* sourceName = NULL;
   do {
-    if (sscanf(sdpLine, "a=source-filter: incl IN IP4 %*s %s",
-	       sourceName) != 1) break;
+    if (!parseStringValue(sdpLine, "a=source-filter: incl IN IP4 %*s %s", sourceName)) break;
 
     // Now, convert this name to an address, if we can:
     NetAddressList addresses(sourceName);
@@ -434,6 +413,11 @@ static Boolean parseSourceFilterAttribute(char const* sdpLine,
 Boolean MediaSession
 ::parseSDPAttribute_source_filter(char const* sdpLine) {
   return parseSourceFilterAttribute(sdpLine, fSourceFilterAddr);
+}
+
+Boolean MediaSession::parseSDPAttribute_key_mgmt(char const* sdpLine) {
+  // Check for a "a=key-mgmt:<prtcl-id> <keymgmt-data>" line:
+  return parseTwoStringValues(sdpLine, "a=key-mgmt:%s %s", fKeyMgmtPrtclId, fKeyMgmtData);
 }
 
 char* MediaSession::lookupPayloadFormat(unsigned char rtpPayloadType,
@@ -600,6 +584,7 @@ MediaSubsession::MediaSubsession(MediaSession& parent)
     fClientPortNum(0), fRTPPayloadFormat(0xFF),
     fSavedSDPLines(NULL), fMediumName(NULL), fCodecName(NULL), fProtocolName(NULL),
     fRTPTimestampFrequency(0), fMultiplexRTCPWithRTP(False), fControlPath(NULL),
+    fKeyMgmtPrtclId(NULL), fKeyMgmtData(NULL),
     fSourceFilterAddr(parent.sourceFilterAddr()), fBandwidth(0),
     fPlayStartTime(0.0), fPlayEndTime(0.0), fAbsStartTime(NULL), fAbsEndTime(NULL),
     fVideoWidth(0), fVideoHeight(0), fVideoFPS(0), fNumChannels(1), fScale(1.0f), fNPT_PTS_Offset(0.0f),
@@ -626,6 +611,7 @@ MediaSubsession::~MediaSubsession() {
   delete[] fConnectionEndpointName; delete[] fSavedSDPLines;
   delete[] fMediumName; delete[] fCodecName; delete[] fProtocolName;
   delete[] fControlPath;
+  delete[] fKeyMgmtPrtclId; delete[] fKeyMgmtData;
   delete[] fAbsStartTime; delete[] fAbsEndTime;
   delete[] fSessionId;
 
@@ -997,14 +983,7 @@ Boolean MediaSubsession::parseSDPLine_c(char const* sdpLine) {
   // Check for "c=IN IP4 <connection-endpoint>"
   // or "c=IN IP4 <connection-endpoint>/<ttl+numAddresses>"
   // (Later, do something with <ttl+numAddresses> also #####)
-  char* connectionEndpointName = parseCLine(sdpLine);
-  if (connectionEndpointName != NULL) {
-    delete[] fConnectionEndpointName;
-    fConnectionEndpointName = connectionEndpointName;
-    return True;
-  }
-
-  return False;
+  return parseStringValue(sdpLine, "c=IN IP4 %[^/\r\n]", fConnectionEndpointName);
 }
 
 Boolean MediaSubsession::parseSDPLine_b(char const* sdpLine) {
@@ -1060,16 +1039,7 @@ Boolean MediaSubsession::parseSDPAttribute_rtcpmux(char const* sdpLine) {
 
 Boolean MediaSubsession::parseSDPAttribute_control(char const* sdpLine) {
   // Check for a "a=control:<control-path>" line:
-  Boolean parseSuccess = False;
-
-  char* controlPath = strDupSize(sdpLine); // ensures we have enough space
-  if (sscanf(sdpLine, "a=control: %s", controlPath) == 1) {
-    parseSuccess = True;
-    delete[] fControlPath; fControlPath = strDup(controlPath);
-  }
-  delete[] controlPath;
-
-  return parseSuccess;
+  return parseStringValue(sdpLine, "a=control: %s", fControlPath);
 }
 
 Boolean MediaSubsession::parseSDPAttribute_range(char const* sdpLine) {
@@ -1178,6 +1148,11 @@ Boolean MediaSubsession::parseSDPAttribute_framerate(char const* sdpLine) {
   }
 
   return parseSuccess;
+}
+
+Boolean MediaSubsession::parseSDPAttribute_key_mgmt(char const* sdpLine) {
+  // Check for a "a=key-mgmt:<prtcl-id> <keymgmt-data>" line:
+  return parseTwoStringValues(sdpLine, "a=key-mgmt:%s %s", fKeyMgmtPrtclId, fKeyMgmtData);
 }
 
 Boolean MediaSubsession::createSourceObjects(int useSpecialRTPoffset) {
