@@ -5,20 +5,20 @@
 #include <Base64.hh>
 #include <NetCommon.h>
 
-static unsigned get4Bytes(unsigned char const*& ptr) {
-  unsigned result = (ptr[0]<<24)|(ptr[1]<<16)|(ptr[2]<<8)|ptr[3];
+static u_int32_t get4Bytes(u_int8_t const*& ptr) {
+  u_int32_t result = (ptr[0]<<24)|(ptr[1]<<16)|(ptr[2]<<8)|ptr[3];
   ptr += 4;
   return result;
 }
 
-static unsigned get2Bytes(unsigned char const*& ptr) {
-  unsigned short result = (ptr[0]<<8)|ptr[1];
+static u_int16_t get2Bytes(u_int8_t const*& ptr) {
+  u_int16_t result = (ptr[0]<<8)|ptr[1];
   ptr += 2;
   return result;
 }
 
-static unsigned char getByte(unsigned char const*& ptr) {
-  unsigned char result = ptr[0];
+static u_int8_t getByte(u_int8_t const*& ptr) {
+  u_int8_t result = ptr[0];
   ptr += 1;
   return result;
 }
@@ -85,7 +85,7 @@ static Boolean parseKeyDataSubPayload(u_int8_t const*& ptr, u_int8_t const* endP
   Boolean hasSalt = Type == 1 || Type == 3;
   
   fprintf(stderr, "\t\tKey Validity: %d (%s)\n", KV,
-	  KV == 0 ? "NULL" : KV == 1 ? "SPI" : KV == 2 ? "Interval" : "unknown");
+	  KV == 0 ? "NULL" : KV == 1 ? "SPI/MKI" : KV == 2 ? "Interval" : "unknown");
   Boolean hasKV = KV != 0;
 
   u_int16_t keyDataLen = get2Bytes(ptr);
@@ -108,7 +108,35 @@ static Boolean parseKeyDataSubPayload(u_int8_t const*& ptr, u_int8_t const* endP
   }
 
   if (hasKV) {
-    return False; // TO COMPLETE #####
+    fprintf(stderr, "\t\tKV (key validity) data:\n");
+    if (KV == 1) { // SPI/MKI
+      testSize(1);
+      u_int8_t SPILength = getByte(ptr);
+      fprintf(stderr, "\t\t\tSPI Length: %d\n", SPILength);
+
+      testSize(SPILength);
+      fprintf(stderr, "\t\t\tSPI: ");
+      for (unsigned i = 0; i < SPILength; ++i) fprintf(stderr, ":%02x", getByte(ptr));
+      fprintf(stderr, "\n");
+    } else if (KV == 2) { // Interval
+      testSize(1);
+      u_int8_t VFLength = getByte(ptr);
+      fprintf(stderr, "\t\t\tVF Length: %d\n", VFLength);
+
+      testSize(VFLength);
+      fprintf(stderr, "\t\t\tVF: ");
+      for (unsigned i = 0; i < VFLength; ++i) fprintf(stderr, ":%02x", getByte(ptr));
+      fprintf(stderr, "\n");
+
+      testSize(1);
+      u_int8_t VTLength = getByte(ptr);
+      fprintf(stderr, "\t\t\tVT Length: %d\n", VTLength);
+
+      testSize(VTLength);
+      fprintf(stderr, "\t\t\tVT: ");
+      for (unsigned i = 0; i < VTLength; ++i) fprintf(stderr, ":%02x", getByte(ptr));
+      fprintf(stderr, "\n");
+    }
   }
     
   return True;
@@ -136,7 +164,7 @@ Boolean parseMikeyKEMAC(u_int8_t const*& ptr, u_int8_t const* endPtr, u_int8_t& 
   }
 
   u_int8_t macAlg = getByte(ptr);
-  fprintf(stderr, "\t\tMAC alg: %d (%s)\n", macAlg,
+  fprintf(stderr, "\tMAC alg: %d (%s)\n", macAlg,
 	  macAlg == 0 ? "NULL" : macAlg == 1 ? "HMAC-SHA-1-160" : "unknown");
   if (macAlg > 1) return False;
   if (macAlg == 1) { // HMAC-SHA-1-160
@@ -191,7 +219,7 @@ Boolean parseMikeyT(u_int8_t const*& ptr, u_int8_t const* endPtr, u_int8_t& next
 #define MAX_SRTP_POLICY_PARAM_TYPE 12
 static char const* SRTPPolicyParamTypeExplanation[] = {
       "Encryption algorithm",
-      "Session Encription key length",
+      "Session Encryption key length",
       "Authentication algorithm",
       "Session Authentication key length",
       "Session Salt key length",
@@ -263,7 +291,7 @@ Boolean parseMikeySP(u_int8_t const*& ptr, u_int8_t const* endPtr, u_int8_t& nex
   fprintf(stderr, "\tPolicy number: %d\n", getByte(ptr));
 
   u_int8_t protocolType = getByte(ptr);
-  fprintf(stderr, "\tProtocol type: %d (%s)", protocolType, protocolType == 0 ? "SRTP" : "unknown");
+  fprintf(stderr, "\tProtocol type: %d (%s)\n", protocolType, protocolType == 0 ? "SRTP" : "unknown");
   if (protocolType != 0) return False;
 
   u_int16_t policyParam_len = get2Bytes(ptr);
@@ -304,7 +332,7 @@ int main(int argc, char** argv) {
   unsigned mikeyDataSize;
   u_int8_t* mikeyData = base64Decode(base64Data, mikeyDataSize);
 
-  fprintf(stderr, "Base64Data \"%s\" produces %d bytes of mikey data:\n", base64Data, mikeyDataSize);
+  fprintf(stderr, "Base64Data \"%s\" produces %d bytes of MIKEY data:\n", base64Data, mikeyDataSize);
   for (unsigned i = 0; i < mikeyDataSize; ++i) fprintf(stderr, ":%02x", mikeyData[i]);
   fprintf(stderr, "\n");
 

@@ -14,13 +14,14 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2020 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2021 Live Networks, Inc.  All rights reserved.
 // A filter that breaks up a H.264 or H.265 Video Elementary Stream into NAL units.
 // Implementation
 
 #include "H264or5VideoStreamFramer.hh"
 #include "MPEGVideoStreamParser.hh"
 #include "BitVector.hh"
+#include <GroupsockHelper.hh> // for "gettimeofday()"
 
 ////////// H264or5VideoStreamParser definition //////////
 
@@ -85,8 +86,7 @@ H264or5VideoStreamFramer
   fParser = createParser
     ? new H264or5VideoStreamParser(hNumber, this, inputSource, includeStartCodeInOutput)
     : NULL;
-  fNextPresentationTime = fPresentationTimeBase;
-  fFrameRate = 25.0; // We assume a frame rate of 25 fps, unless we learn otherwise (from parsing a VPS or SPS NAL unit)
+  fFrameRate = 30.0; // We assume a frame rate of 30 fps, unless we learn otherwise (from parsing a VPS or SPS NAL unit)
 }
 
 H264or5VideoStreamFramer::~H264or5VideoStreamFramer() {
@@ -124,6 +124,15 @@ void H264or5VideoStreamFramer::saveCopyOfPPS(u_int8_t* from, unsigned size) {
   memmove(fLastSeenPPS, from, size);
 
   fLastSeenPPSSize = size;
+}
+
+void H264or5VideoStreamFramer::setPresentationTime() {
+  if (fPresentationTimeBase.tv_sec == 0 && fPresentationTimeBase.tv_usec == 0) {
+    // Set to the current time:
+    gettimeofday(&fPresentationTimeBase, NULL);
+    fNextPresentationTime = fPresentationTimeBase;
+  }
+  fPresentationTime = fNextPresentationTime;
 }
 
 Boolean H264or5VideoStreamFramer::isVPS(u_int8_t nal_unit_type) {
@@ -189,7 +198,7 @@ H264or5VideoStreamParser
     fHNumber(hNumber), fOutputStartCodeSize(includeStartCodeInOutput ? 4 : 0), fHaveSeenFirstStartCode(False), fHaveSeenFirstByteOfNALUnit(False), fParsedFrameRate(0.0),
     cpb_removal_delay_length_minus1(23), dpb_output_delay_length_minus1(23),
     CpbDpbDelaysPresentFlag(0), pic_struct_present_flag(0),
-    DeltaTfiDivisor(2.0) {
+    DeltaTfiDivisor(1.0) {
 }
 
 H264or5VideoStreamParser::~H264or5VideoStreamParser() {

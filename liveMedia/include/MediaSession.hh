@@ -14,7 +14,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2020 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2021 Live Networks, Inc.  All rights reserved.
 // A data structure that represents a session that consists of
 // potentially multiple (audio and/or video) sub-sessions
 // (This data structure is used for media *receivers* - i.e., clients.
@@ -54,6 +54,9 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #ifndef _FRAMED_FILTER_HH
 #include "FramedFilter.hh"
 #endif
+#ifndef _SRTP_CRYPTOGRAPHIC_CONTEXT_HH
+#include "SRTPCryptographicContext.hh"
+#endif
 
 class MediaSubsession; // forward
 
@@ -68,8 +71,9 @@ public:
   Boolean hasSubsessions() const { return fSubsessionsHead != NULL; }
 
   char* connectionEndpointName() const { return fConnectionEndpointName; }
+  int connectionEndpointNameAddressFamily() const { return fConnectionEndpointNameAddressFamily; }
   char const* CNAME() const { return fCNAME; }
-  struct in_addr const& sourceFilterAddr() const { return fSourceFilterAddr; }
+  struct sockaddr_storage const& sourceFilterAddr() const { return fSourceFilterAddr; }
   float& scale() { return fScale; }
   float& speed() { return fSpeed; }
   char* mediaSessionType() const { return fMediaSessionType; }
@@ -77,9 +81,6 @@ public:
   char* sessionDescription() const { return fSessionDescription; }
   char const* controlPath() const { return fControlPath; }
 
-  char const* keyMgmtPrtclId() const { return fKeyMgmtPrtclId; }
-  char const* keyMgmtData() const { return fKeyMgmtData; }
-  
   double& playStartTime() { return fMaxPlayStartTime; }
   double& playEndTime() { return fMaxPlayEndTime; }
   char* absStartTime() const;
@@ -93,6 +94,9 @@ public:
 			      int useSpecialRTPoffset = -1);
       // Initiates the first subsession with the specified MIME type
       // Returns the resulting subsession, or 'multi source' (not both)
+
+  MIKEYState* getMIKEYState() const { return fMIKEYState; }
+  SRTPCryptographicContext* getCrypto() const { return fCrypto; }
 
 protected: // redefined virtual functions
   virtual Boolean isMediaSession() const;
@@ -131,19 +135,22 @@ protected:
 
   // Fields set from a SDP description:
   char* fConnectionEndpointName;
+  int fConnectionEndpointNameAddressFamily;
   double fMaxPlayStartTime;
   double fMaxPlayEndTime;
   char* fAbsStartTime;
   char* fAbsEndTime;
-  struct in_addr fSourceFilterAddr; // used for SSM
+  struct sockaddr_storage fSourceFilterAddr; // used for SSM
   float fScale; // set from a RTSP "Scale:" header
   float fSpeed;
   char* fMediaSessionType; // holds a=type value
   char* fSessionName; // holds s=<session name> value
   char* fSessionDescription; // holds i=<session description> value
   char* fControlPath; // holds optional a=control: string
-  char* fKeyMgmtPrtclId;
-  char* fKeyMgmtData;
+
+  // Optional key management and crypto state:
+  MIKEYState* fMIKEYState;
+  SRTPCryptographicContext* fCrypto;
 };
 
 
@@ -174,10 +181,7 @@ public:
   char const* protocolName() const { return fProtocolName; }
   char const* controlPath() const { return fControlPath; }
 
-  char const* keyMgmtPrtclId() const { return fKeyMgmtPrtclId; }
-  char const* keyMgmtData() const { return fKeyMgmtData; }
-  
-  Boolean isSSM() const { return fSourceFilterAddr.s_addr != 0; }
+  Boolean isSSM() const { return !addressIsNull(fSourceFilterAddr); }
 
   unsigned short videoWidth() const { return fVideoWidth; }
   unsigned short videoHeight() const { return fVideoHeight; }
@@ -223,6 +227,11 @@ public:
   char const* connectionEndpointName() const {
     return fConnectionEndpointName;
   }
+  int connectionEndpointNameAddressFamily() const {
+    return fConnectionEndpointNameAddressFamily == AF_UNSPEC
+      ? parentSession().connectionEndpointNameAddressFamily()
+      : fConnectionEndpointNameAddressFamily;
+  }
 
   // 'Bandwidth' parameter, set in the "b=" SDP line:
   unsigned bandwidth() const { return fBandwidth; }
@@ -245,9 +254,9 @@ public:
   char const* fmtp_spropsps() const { return attrVal_str("sprop-sps"); }
   char const* fmtp_sproppps() const { return attrVal_str("sprop-pps"); }
 
-  netAddressBits connectionEndpointAddress() const;
+  void getConnectionEndpointAddress(struct sockaddr_storage& addr) const;
       // Converts "fConnectionEndpointName" to an address (or 0 if unknown)
-  void setDestinations(netAddressBits defaultDestAddress);
+  void setDestinations(struct sockaddr_storage const& defaultDestAddress);
       // Uses "fConnectionEndpointName" and "serverPortNum" to set
       // the destination address and port of the RTP and RTCP objects.
       // This is typically called by RTSP clients after doing "SETUP".
@@ -277,6 +286,9 @@ public:
   // Also, for this function to work properly, the RTP stream's presentation times must (eventually) be
   // synchronized via RTCP.
   // (Note: If this function returns a negative number, then the result should be ignored by the caller.)
+
+  MIKEYState* getMIKEYState() const { return fMIKEYState != NULL ? fMIKEYState : fParent.getMIKEYState(); }
+  SRTPCryptographicContext* getCrypto() const { return fCrypto != NULL ? fCrypto : fParent.getCrypto(); }
 
 protected:
   friend class MediaSession;
@@ -311,6 +323,7 @@ protected:
 
   // Fields set from a SDP description:
   char* fConnectionEndpointName; // may also be set by RTSP SETUP response
+  int fConnectionEndpointNameAddressFamily;
   unsigned short fClientPortNum; // in host byte order
       // This field is also set by initiate()
   unsigned char fRTPPayloadFormat;
@@ -321,9 +334,12 @@ protected:
   unsigned fRTPTimestampFrequency;
   Boolean fMultiplexRTCPWithRTP;
   char* fControlPath; // holds optional a=control: string
-  char* fKeyMgmtPrtclId;
-  char* fKeyMgmtData;
-  struct in_addr fSourceFilterAddr; // used for SSM
+
+  // Optional key management and crypto state:
+  MIKEYState* fMIKEYState;
+  SRTPCryptographicContext* fCrypto;
+
+  struct sockaddr_storage fSourceFilterAddr; // used for SSM
   unsigned fBandwidth; // in kilobits-per-second, from b= line
 
   double fPlayStartTime;

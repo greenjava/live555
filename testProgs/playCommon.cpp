@@ -13,7 +13,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
-// Copyright (c) 1996-2020, Live Networks, Inc.  All rights reserved
+// Copyright (c) 1996-2021, Live Networks, Inc.  All rights reserved
 // A common framework, used for the "openRTSP" and "playSIP" applications
 // Implementation
 //
@@ -212,7 +212,13 @@ int main(int argc, char** argv) {
 	*env << "Failed to find network address for \"" << argv[2] << "\"";
 	break;
       }
-      ReceivingInterfaceAddr = *(unsigned*)(addresses.firstAddress()->data());
+
+      struct sockaddr_storage interfaceAddress;
+
+      copyAddress(interfaceAddress, addresses.firstAddress());
+      if (interfaceAddress.ss_family == AF_INET) { // later, support IPv6 also
+	ReceivingInterfaceAddr = ((sockaddr_in&)interfaceAddress).sin_addr.s_addr;
+      }
       ++argv; --argc;
       break;
     }
@@ -613,6 +619,7 @@ int main(int argc, char** argv) {
 						   verbosityLevel, progName);
     if (handlerServerForREGISTERCommand == NULL) {
       *env << "Failed to create a server for handling incoming \"REGISTER\" commands: " << env->getResultMsg() << "\n";
+      shutdown();
     } else {
       *env << "Awaiting an incoming \"REGISTER\" command on port " << handlerServerForREGISTERCommand->serverPortNum() << "\n";
     }
@@ -905,6 +912,13 @@ void createOutputFiles(char const* periodicFilenameSuffix) {
 	} else if (strcmp(subsession->codecName(), "VORBIS") == 0 ||
 		   strcmp(subsession->codecName(), "OPUS") == 0) {
 	  createOggFileSink = True;
+	} else if (strcmp(subsession->codecName(), "MPEG4-GENERIC") == 0) {
+	  // For AAC audio, we use a regular file sink, but add a 'ADTS framer' filter
+	  // to the end of the data source, so that the resulting file is playable:
+	  FramedFilter* adtsFramer
+	    = ADTSAudioStreamDiscreteFramer::createNew(*env, subsession->readSource(),
+						       subsession->fmtp_config());
+	  subsession->addFilter(adtsFramer);
 	}
       }
       if (createOggFileSink) {
@@ -1525,7 +1539,6 @@ void checkInterPacketGaps(void* /*clientData*/) {
 }
 
 void checkSessionTimeoutBrokenServer(void* /*clientData*/) {
-  sessionTimeoutBrokenServerTask = NULL;
   if (!sendKeepAlivesToBrokenServers) return; // we're not checking
 
   // Send an "OPTIONS" request, starting with the second call
