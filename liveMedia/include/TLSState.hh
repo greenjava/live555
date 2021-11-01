@@ -33,26 +33,38 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 
 class TLSState {
 public:
-  TLSState(class RTSPClient& client);
-  virtual ~TLSState();
-
-public:
   Boolean isNeeded;
 
-  int connect(int socketNum); // returns: -1 (unrecoverable error), 0 (pending), 1 (done)
   int write(const char* data, unsigned count);
   int read(u_int8_t* buffer, unsigned bufferSize);
 
-private:
+protected: // we're an abstract base class
+  TLSState();
+  virtual ~TLSState();
+
   void reset();
+
+#ifndef NO_OPENSSL
+protected:
+  Boolean fHasBeenSetup;
+  SSL_CTX* fCtx;
+  SSL* fCon;
+#endif
+};
+
+class ClientTLSState: public TLSState {
+public:
+  ClientTLSState(class RTSPClient& client);
+  virtual ~ClientTLSState();
+
+  int connect(int socketNum); // returns: -1 (unrecoverable error), 0 (pending), 1 (done)
+
+private:
   Boolean setup(int socketNum);
 
 #ifndef NO_OPENSSL
 private:
   class RTSPClient& fClient;
-  Boolean fHasBeenSetup;
-  SSL_CTX* fCtx;
-  SSL* fCon;
 #endif
 };
 

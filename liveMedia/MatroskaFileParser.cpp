@@ -1231,6 +1231,7 @@ void MatroskaFileParser::deliverFrameBytes() {
 
     MatroskaDemuxedTrack* demuxedTrack = fOurDemux->lookupDemuxedTrack(fBlockTrackNumber);
     if (demuxedTrack == NULL) break; // shouldn't happen
+    if (!demuxedTrack->isCurrentlyAwaitingData()) return; // wait until we're asked for data
 
     unsigned const BANK_SIZE = bankSize();
     while (fCurFrameNumBytesToGet > 0) {

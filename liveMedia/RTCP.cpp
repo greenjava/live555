@@ -379,13 +379,13 @@ void RTCPInstance::sendAppPacket(u_int8_t subtype, char const* name,
   sendBuiltPacket();
 }
 
-void RTCPInstance::setStreamSocket(int sockNum,
-				   unsigned char streamChannelId) {
+void RTCPInstance::setStreamSocket(int sockNum, unsigned char streamChannelId,
+				   TLSState* tlsState) {
   // Turn off background read handling:
   fRTCPInterface.stopNetworkReading();
 
   // Switch to RTCP-over-TCP:
-  fRTCPInterface.setStreamSocket(sockNum, streamChannelId);
+  fRTCPInterface.setStreamSocket(sockNum, streamChannelId, tlsState);
 
   // Turn background reading back on:
   TaskScheduler::BackgroundHandlerProc* handler
@@ -393,13 +393,13 @@ void RTCPInstance::setStreamSocket(int sockNum,
   fRTCPInterface.startNetworkReading(handler);
 }
 
-void RTCPInstance::addStreamSocket(int sockNum,
-				   unsigned char streamChannelId) {
+void RTCPInstance::addStreamSocket(int sockNum, unsigned char streamChannelId,
+				   TLSState* tlsState) {
   // First, turn off background read handling for the default (UDP) socket:
   envir().taskScheduler().turnOffBackgroundReadHandling(fRTCPInterface.gs()->socketNum());
 
   // Add the RTCP-over-TCP interface:
-  fRTCPInterface.addStreamSocket(sockNum, streamChannelId);
+  fRTCPInterface.addStreamSocket(sockNum, streamChannelId, tlsState);
 
   // Turn on background reading for this socket (in case it's not on already):
   TaskScheduler::BackgroundHandlerProc* handler

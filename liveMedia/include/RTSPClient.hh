@@ -357,8 +357,8 @@ private:
   Boolean fHTTPTunnelingConnectionIsPending;
 
   // Optional support for TLS:
-  TLSState fTLS;
-  friend class TLSState;
+  ClientTLSState fTLS;
+  friend class ClientTLSState;
 };
 
 

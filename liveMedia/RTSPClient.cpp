@@ -53,8 +53,6 @@ unsigned RTSPClient::sendSetupCommand(MediaSubsession& subsession, responseHandl
                                       Boolean streamOutgoing, Boolean streamUsingTCP, Boolean forceMulticastOnUnspecified,
 				      Authenticator* authenticator) {
   if (fTunnelOverHTTPPortNum != 0) streamUsingTCP = True; // RTSP-over-HTTP tunneling uses TCP (by definition)
-  // However, if we're using a TLS connection, streaming over TCP doesn't work, so disable it:
-  if (fTLS.isNeeded) streamUsingTCP = False;
   if (fCurrentAuthenticator < authenticator) fCurrentAuthenticator = *authenticator;
 
   u_int32_t booleanFlags = 0;
@@ -1253,13 +1251,13 @@ Boolean RTSPClient::handleSETUPResponse(MediaSubsession& subsession, char const*
     if (streamUsingTCP) {
       // Tell the subsession to receive RTP (and send/receive RTCP) over the RTSP stream:
       if (subsession.rtpSource() != NULL) {
-	subsession.rtpSource()->setStreamSocket(fInputSocketNum, subsession.rtpChannelId);
+	subsession.rtpSource()->setStreamSocket(fInputSocketNum, subsession.rtpChannelId, &fTLS);
 	  // So that we continue to receive & handle RTSP commands and responses from the server
 	subsession.rtpSource()->enableRTCPReports() = False;
 	  // To avoid confusing the server (which won't start handling RTP/RTCP-over-TCP until "PLAY"), don't send RTCP "RR"s yet
 	increaseReceiveBufferTo(envir(), fInputSocketNum, 50*1024);
       }
-      if (subsession.rtcpInstance() != NULL) subsession.rtcpInstance()->setStreamSocket(fInputSocketNum, subsession.rtcpChannelId);
+      if (subsession.rtcpInstance() != NULL) subsession.rtcpInstance()->setStreamSocket(fInputSocketNum, subsession.rtcpChannelId, &fTLS);
       RTPInterface::setServerRequestAlternativeByteHandler(envir(), fInputSocketNum, handleAlternativeRequestByte, this);
     } else {
       // Normal case.

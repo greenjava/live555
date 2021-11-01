@@ -21,45 +21,18 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "TLSState.hh"
 #include "RTSPClient.hh"
 
-TLSState::TLSState(RTSPClient& client)
+////////// TLSState implementation //////////
+
+TLSState::TLSState()
   : isNeeded(False)
 #ifndef NO_OPENSSL
-  , fClient(client), fHasBeenSetup(False), fCtx(NULL), fCon(NULL)
+  , fHasBeenSetup(False), fCtx(NULL), fCon(NULL)
 #endif
 {
 }
 
 TLSState::~TLSState() {
   reset();
-}
-
-int TLSState::connect(int socketNum) {
-#ifndef NO_OPENSSL
-  if (!fHasBeenSetup && !setup(socketNum)) return -1; // error
-  
-  // Complete the SSL-level connection to the server:
-  int sslConnectResult = SSL_connect(fCon);
-  int sslGetErrorResult = SSL_get_error(fCon, sslConnectResult);
-
-  if (sslConnectResult > 0) {
-    return sslConnectResult; // connection has completed
-  } else if (sslConnectResult < 0
-	      && (sslGetErrorResult == SSL_ERROR_WANT_READ ||
-		  sslGetErrorResult == SSL_ERROR_WANT_WRITE)) {
-    // We need to wait until the socket is readable or writable:
-    fClient.envir().taskScheduler()
-      .setBackgroundHandling(socketNum,
-			     sslGetErrorResult == SSL_ERROR_WANT_READ ? SOCKET_READABLE : SOCKET_WRITABLE,
-			     (TaskScheduler::BackgroundHandlerProc*)&RTSPClient::connectionHandler,
-			     &fClient);
-    return 0; // connection is pending
-  } else {
-    fClient.envir().setResultErrMsg("TLS connection to server failed: ", sslGetErrorResult);
-    return -1; // error
-  }
-#else
-  return -1;	   
-#endif
 }
 
 int TLSState::write(const char* data, unsigned count) {
@@ -95,7 +68,49 @@ void TLSState::reset() {
 #endif
 }
 
-Boolean TLSState::setup(int socketNum) {
+
+////////// ClientTLSState implementation //////////
+
+ClientTLSState::ClientTLSState(RTSPClient& client)
+#ifndef NO_OPENSSL
+  : fClient(client)
+#endif
+{
+}
+
+ClientTLSState::~ClientTLSState() {
+}
+
+int ClientTLSState::connect(int socketNum) {
+#ifndef NO_OPENSSL
+  if (!fHasBeenSetup && !setup(socketNum)) return -1; // error
+  
+  // Complete the SSL-level connection to the server:
+  int sslConnectResult = SSL_connect(fCon);
+  int sslGetErrorResult = SSL_get_error(fCon, sslConnectResult);
+
+  if (sslConnectResult > 0) {
+    return sslConnectResult; // connection has completed
+  } else if (sslConnectResult < 0
+	      && (sslGetErrorResult == SSL_ERROR_WANT_READ ||
+		  sslGetErrorResult == SSL_ERROR_WANT_WRITE)) {
+    // We need to wait until the socket is readable or writable:
+    fClient.envir().taskScheduler()
+      .setBackgroundHandling(socketNum,
+			     sslGetErrorResult == SSL_ERROR_WANT_READ ? SOCKET_READABLE : SOCKET_WRITABLE,
+			     (TaskScheduler::BackgroundHandlerProc*)&RTSPClient::connectionHandler,
+			     &fClient);
+    return 0; // connection is pending
+  } else {
+    fClient.envir().setResultErrMsg("TLS connection to server failed: ", sslGetErrorResult);
+    return -1; // error
+  }
+#else
+  return -1;	   
+#endif
+}
+
+Boolean ClientTLSState::setup(int socketNum) {
 #ifndef NO_OPENSSL
   do {
     (void)SSL_library_init();
