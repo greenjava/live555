@@ -14,12 +14,15 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 **********/
 // "liveMedia"
-// Copyright (c) 1996-2021 Live Networks, Inc.  All rights reserved.
+// Copyright (c) 1996-2022 Live Networks, Inc.  All rights reserved.
 // State encapsulating a TLS connection
 // Implementation
 
 #include "TLSState.hh"
 #include "RTSPClient.hh"
+#ifndef NO_OPENSSL
+#include <openssl/err.h>
+#endif
 
 ////////// TLSState implementation //////////
 
@@ -32,7 +35,9 @@ TLSState::TLSState()
 }
 
 TLSState::~TLSState() {
+#ifndef NO_OPENSSL
   reset();
+#endif
 }
 
 int TLSState::write(const char* data, unsigned count) {
@@ -59,14 +64,22 @@ int TLSState::read(u_int8_t* buffer, unsigned bufferSize) {
 #endif
 }
 
-void TLSState::reset() {
 #ifndef NO_OPENSSL
+void TLSState::initLibrary() {
+  static Boolean SSLLibraryHasBeenInitialized = False;
+  if (!SSLLibraryHasBeenInitialized) {
+    (void)SSL_library_init();
+    SSLLibraryHasBeenInitialized = True;
+  }
+}
+
+void TLSState::reset() {
   if (fHasBeenSetup) SSL_shutdown(fCon);
 
   if (fCon != NULL) { SSL_free(fCon); fCon = NULL; }
   if (fCtx != NULL) { SSL_CTX_free(fCtx); fCtx = NULL; }
-#endif
 }
+#endif
 
 
 ////////// ClientTLSState implementation //////////
@@ -110,10 +123,10 @@ int ClientTLSState::connect(int socketNum) {
 #endif
 }
 
-Boolean ClientTLSState::setup(int socketNum) {
 #ifndef NO_OPENSSL
+Boolean ClientTLSState::setup(int socketNum) {
   do {
-    (void)SSL_library_init();
+    initLibrary();
 
     SSL_METHOD const* meth = SSLv23_client_method();
     if (meth == NULL) break;
@@ -132,9 +145,86 @@ Boolean ClientTLSState::setup(int socketNum) {
     fHasBeenSetup = True;
     return True;
   } while (0);
-#endif
 
   // An error occurred:
   reset();
   return False;
 }
+#endif
+
+
+////////// ServerTLSState implementation //////////
+
+ServerTLSState::ServerTLSState(UsageEnvironment& env)
+  : tlsAcceptIsNeeded(False)
+#ifndef NO_OPENSSL
+  , fEnv(env), fCertificateFileName(NULL), fPrivateKeyFileName(NULL)
+#endif
+{
+}
+
+ServerTLSState::~ServerTLSState() {
+}
+
+void ServerTLSState
+::setCertificateAndPrivateKeyFileNames(char const* certFileName, char const* privKeyFileName) {
+#ifndef NO_OPENSSL
+  fCertificateFileName = certFileName;
+  fPrivateKeyFileName = privKeyFileName;
+#endif
+}
+
+int ServerTLSState::accept(int socketNum) {
+#ifndef NO_OPENSSL
+  if (!fHasBeenSetup && !setup(socketNum)) return -1; // error
+  
+  int sslAcceptResult = SSL_accept(fCon);
+  int sslGetErrorResult = SSL_get_error(fCon, sslAcceptResult);
+
+  if (sslAcceptResult > 0) {
+    return sslAcceptResult; // success
+  } else if (sslAcceptResult < 0 && sslGetErrorResult == SSL_ERROR_WANT_READ) {
+    // We need to wait until the socket is readable:
+    return 0; // connection is pending
+  } else {
+    fEnv.setResultErrMsg("SSL_accept() call failed: ", sslGetErrorResult);
+    return -1; // error
+  }
+#else
+  return -1;	   
+#endif
+}
+
+#ifndef NO_OPENSSL
+Boolean ServerTLSState::setup(int socketNum) {
+  do {
+    initLibrary();
+
+    SSL_METHOD const* meth = SSLv23_server_method();
+    if (meth == NULL) break;
+
+    fCtx = SSL_CTX_new(meth);
+    if (fCtx == NULL) break;
+
+    if (SSL_CTX_set_ecdh_auto(fCtx, 1) != 1) break;
+
+    if (SSL_CTX_use_certificate_file(fCtx, fCertificateFileName, SSL_FILETYPE_PEM) != 1) break;
+
+    if (SSL_CTX_use_PrivateKey_file(fCtx, fPrivateKeyFileName, SSL_FILETYPE_PEM) != 1) break;
+
+    fCon = SSL_new(fCtx);
+    if (fCon == NULL) break;
+
+    BIO* bio = BIO_new_socket(socketNum, BIO_NOCLOSE);
+    SSL_set_bio(fCon, bio, bio);
+
+    fHasBeenSetup = True;
+    return True;
+  } while (0);
+
+  // An error occurred:
+  ERR_print_errors_fp(stderr);
+  reset();
+  return False;
+}
+#endif
